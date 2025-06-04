@@ -1,0 +1,41 @@
+version: 2.2
+pipelines:
+  - id: sentiment-analysis
+    status: running
+    connectors:
+      # Postgres source with table "reviews"
+      - id: pgsource
+        plugin: "postgres"
+        type: "source"
+        settings:
+          tables: "reviews"
+          url: ${POSTGRES_URL}
+      # HTTP destination using Slack webhooks URL
+      - id: slackdest
+        type: "destination"
+        plugin: "http"
+        settings:
+          url: ${SLACK_WEBHOOK_URL}
+          headers: "Content-type:application/json"
+          validateConnection: false
+    processors:
+      - id: openai
+        plugin: "openai.textgen"
+        settings:
+          api_key: ${OPENAI_API_KEY}
+          developer_message: "Perform sentiment analysis on the user text. Classify as positive, negative, or neutral. Use only POSITIVE, NEGATIVE, or NEUTRAL in your response."
+          field: ".Payload.After.content"
+          model: "gpt-4.1"
+      - id: frename
+        plugin: "field.rename"
+        settings:
+          mapping: ".Payload.After.message:text"
+      - id: fset
+        plugin: "field.set"
+        settings:
+          field: ".Payload.After.text"
+          value: "NEW REVIEW WITH *{{.Payload.After.text}}* SENTIMENT"
+      - id: fexclude
+        plugin: "field.exclude"
+        settings:
+          fields: ".Payload.After.id"

@@ -1,0 +1,41 @@
+version: 2.2
+pipelines:
+  - id: showcase-summarize
+    status: running
+    connectors:
+      # Postgres source with table "tickets"
+      - id: pgsource
+        plugin: "postgres"
+        type: "source"
+        settings:
+          tables: "tickets"
+          url: ${POSTGRES_URL}
+      # HTTP destination using Slack webhooks URL
+      - id: slackdest
+        type: "destination"
+        plugin: "http"
+        settings:
+          url: ${SLACK_WEBHOOK_URL}
+          headers: "Content-type:application/json"
+          validateConnection: false
+    processors:
+      - id: openai
+        plugin: "openai.textgen"
+        settings:
+          api_key: ${OPENAI_API_KEY}
+          developer_message: "Perform a summarization of the following user text. ONLY return the summary, and no annotations or labels."
+          field: ".Payload.After.message"
+          model: "gpt-4.1"
+      - id: frename
+        plugin: "field.rename"
+        settings:
+          mapping: ".Payload.After.message:text"
+      - id: fset
+        plugin: "field.set"
+        settings:
+          field: ".Payload.After.text"
+          value: "*NEW TICKET FROM USER {{.Payload.After.id}}*\n{{.Payload.After.text}}"
+      - id: fexclude
+        plugin: "field.exclude"
+        settings:
+          fields: ".Payload.After.id"

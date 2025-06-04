@@ -1,0 +1,15 @@
+services:
+  docprocserver:
+    build: ./docprocserver
+    pull_policy: never
+    restart: always
+    ports:
+      - 8089:8089
+  chatserver:
+    build: ./chatserver
+    pull_policy: never
+    restart: always
+    environment:
+      - OPENAI_API_KEY
+    ports:
+      - 8090:8090

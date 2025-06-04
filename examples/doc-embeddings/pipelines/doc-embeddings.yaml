@@ -1,0 +1,104 @@
+version: 2.2
+pipelines:
+  - id: s3-unstructured-embed
+    status: running
+    connectors:
+      - id: s3-pdf-source
+        plugin: "s3"
+        type: "source"
+        settings:
+          aws.accessKeyId: ${AWS_ACCESS_KEY}
+          aws.secretAccessKey: ${AWS_ACCESS_SECRET}
+          aws.region: ${AWS_REGION}
+          aws.bucket: ${AWS_BUCKET}
+      - id: postgres-dest
+        type: "destination"
+        plugin: "postgres"
+        settings:
+          url: "${POSTGRES_URL}"
+          table: "demo"
+    processors:
+      - id: b64
+        plugin: "base64.encode"
+        settings:
+          field: ".Payload.After"
+      - id: httproc-docproc
+        plugin: "webhook.http"
+        settings:
+          headers.content-type: "application/json"
+          request.body: '{"data": "{{printf "%s" .Payload.After}}" }'
+          request.method: "POST"
+          request.url: "http://127.0.0.1:8089/unstructured/partition"
+          response.body: ".Payload.After"
+      - id: proc-decode-json
+        plugin: "json.decode"
+        settings:
+          field: ".Payload.After"
+      - id: proc-format
+        plugin: "custom.javascript"
+        settings:
+          script: |
+            function process(rec) {
+              const texts = rec.Payload.After.data.map((x) => {
+                return x.text;
+              }).filter((x) => {
+               return !!x;
+              });
+              rec.Payload.After = StructuredData();
+              rec.Payload.After["original"] = texts;
+              rec.Payload.After["embeddings"] = texts;
+
+              return rec;
+            }
+      - id: httproc-embed
+        plugin: "webhook.http"
+        settings:
+          headers.Authorization: Bearer ${OPENAI_API_KEY}
+          request.body: '{"input": {{toJson .Payload.After.embeddings}}, "dimensions": 768, "model": "text-embedding-3-small", "encoding_format": "float"}'
+          request.url: "https://api.openai.com/v1/embeddings"
+          request.method: "POST"
+          response.body: ".Payload.After.embeddings"
+      - id: decodeembeddings
+        plugin: "json.decode"
+        settings:
+          field: ".Payload.After.embeddings"
+      - id: jstxfinal
+        plugin: "custom.javascript"
+        settings:
+          script: |
+            function process(rec) {
+              const original = rec.Payload.After.original;
+              const embeddings = rec.Payload.After.embeddings.data;
+
+              const formatted = embeddings.map((e) => {
+                return { original: original[e.index], embedding: JSON.stringify(e.embedding)}
+              })
+
+              rec.Payload.After = StructuredData();
+              rec.Payload.After["data"] = formatted;
+
+              return rec;
+            }
+      - id: split
+        plugin: "split"
+        settings:
+          field: ".Payload.After.data"
+      - id: fset-original
+        plugin: "field.set"
+        settings:
+          field: ".Payload.After.original"
+          value: "{{ .Payload.After.data.original}}"
+      - id: fset-embedding
+        plugin: "field.set"
+        settings:
+          field: ".Payload.After.embedding"
+          value: "{{ .Payload.After.data.embedding}}"
+      - id: fset-id
+        plugin: "field.set"
+        settings:
+          field: ".Key"
+          value: '{ "id": "{{printf "%s" .Key}}_{{index .Metadata "split.index"}}" }'
+      - id: fexclude
+        plugin: "field.exclude"
+        settings:
+          fields: ".Payload.After.data"
