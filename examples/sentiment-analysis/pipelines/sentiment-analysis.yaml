@@ -29,7 +29,7 @@ pipelines:
       - id: frename
         plugin: "field.rename"
         settings:
-          mapping: ".Payload.After.message:text"
+          mapping: ".Payload.After.content:text"
       - id: fset
         plugin: "field.set"
         settings:
