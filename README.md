@@ -22,13 +22,21 @@ This repository showcases practical AI pipeline implementations using Conduit's 
 - **Destination**: Slack webhooks
 - **Use Case**: Automatically analyze and notify teams of customer review sentiment
 
-### [RAG Knowledge System](./examples/doc-embeddings/)
+### [RAG Knowledge System (OpenAI)](./examples/rag-openai/)
 **Real-time ingest document processing and intelligent search**
 - **Source**: AWS S3 (documents)
 - **AI Processing**: Document parsing + OpenAI embeddings + vector search
 - **Destination**: PostgreSQL with pgvector
 - **Use Case**: Build searchable knowledge bases from document collections
 - **Includes**: Document parsing service + RAG query API
+
+### [RAG Knowledge System (Ollama)](./examples/rag-openai/)
+**Real-time ingest document processing and intelligent search**
+- **Source**: AWS S3 (documents)
+- **AI Processing**: Document parsing + Ollama embeddings + vector search
+- **Destination**: Supabase
+- **Use Case**: Build a chatbot UI with knowledge bases from document collections using local and open source software
+- **Includes**: Document parsing service
 
 ## Quick Start
 

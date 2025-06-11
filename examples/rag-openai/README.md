@@ -176,7 +176,7 @@ export OPENAI_API_KEY="sk-your-openai-api-key"
 
 ### 2. Start Document Processing Service & RAG Query Service
 ```bash
-# in examples/doc-embeddings
+# in examples/rag-openai
 docker compose up -d
 ```
 Now your services should be running:
@@ -188,7 +188,7 @@ Now your services should be running:
 ### 3. Run Conduit Pipeline
 
 ```bash
-# in examples/doc-embeddings
+# in examples/rag-openai
 conduit run
 ```
 For more information on installing and running conduit, [see the official docs](https://conduit.io/docs)
