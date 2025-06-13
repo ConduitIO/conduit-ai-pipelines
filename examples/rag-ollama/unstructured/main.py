@@ -14,7 +14,9 @@
 
 
 import io
+import logging
 import base64
+import time
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -33,8 +35,24 @@ app = FastAPI()
 
 @app.post("/unstructured/partition")
 async def unstructured_partition(req: Request):
-    padded = base64_padding(req.data)
-    decoded = base64.b64decode(padded)
-    f = io.BytesIO(decoded)
-    elements = partition(file=f, include_page_breaks=True, strategy="hi_res", chunking_strategy="basic")
-    return { "data": list(map(lambda e : { "category": e.category, "text": str(e)}, elements)) }
+    try:
+        start_total = time.time()
+        padded = base64_padding(req.data)
+        decoded = base64.b64decode(padded)
+        text = decoded
+
+        setup_time = time.time()
+
+        print(f"Received data: {text[:100]}...")  # Print first 100 chars for brevity
+        print(f"Setup time: {setup_time - start_total:.4f} seconds")
+
+        start_partition = time.time()
+        f = io.BytesIO(text)
+        elements = partition(file=f, include_page_breaks=True, strategy="hi_res", chunking_strategy="basic")
+        end_partition = time.time()
+        print(f"Partitioned {len(elements)} elements in {end_partition - start_partition:.4f} seconds. First 5: {[str(e) for e in elements[:5]]}")
+
+        return { "chunks": [str(e) for e in elements] }
+    except Exception as e:
+        logging.exception("Error in /unstructured/partition endpoint")
+        raise e

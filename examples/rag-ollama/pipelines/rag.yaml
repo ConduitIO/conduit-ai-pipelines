@@ -1,0 +1,188 @@
+version: 2.2
+pipelines:
+  - id: chatbot-ui
+    status: running
+    connectors:
+      - id: s3-bucket
+        type: source
+        plugin: builtin:s3
+        settings:
+          aws.accessKeyId: ${AWS_ACCESS_KEY}
+          aws.secretAccessKey: ${AWS_ACCESS_SECRET}
+          aws.region: ${AWS_REGION}
+          aws.bucket: ${AWS_BUCKET}
+      - id: supabase
+        type: destination
+        plugin: builtin:postgres
+        settings:
+          url: postgresql://${SUPABASE_USERNAME}:${SUPABASE_PASSWORD}@${SUPABASE_ADDRESS}/postgres
+    processors:
+      - id: generate-id
+        plugin: "custom.javascript"
+        settings:
+          script: |
+            function process(rec) {
+              rec.Metadata["file_id"] = uuidv4(); 
+              return rec;
+            }
+            
+            function uuidv4() {
+              return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0;
+                var v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+              });
+            }
+      - id: base64
+        plugin: "base64.encode"
+        settings:
+          field: ".Payload.After"
+      - id: unstructured-partition-request
+        plugin: "webhook.http"
+        settings:
+          headers.content-type: "application/json"
+          request.body: '{"data":{{ printf "%s" .Payload.After | toJson }}}'
+          request.method: "POST"
+          request.url: "http://${UNSTRUCTURED_ADDRESS}/unstructured/partition"
+          # Reponse will contain {"chunks": ["text-chunk1","text-chunk2",...]}
+          response.body: ".Payload.After"
+      - id: unstructured-partition-decode-json
+        plugin: "json.decode"
+        settings:
+          field: ".Payload.After"
+      - id: ollama-embed-request
+        plugin: "webhook.http"
+        settings:
+          request.body: '{"input": {{toJson .Payload.After.chunks}}, "model":"all-minilm:l6-v2"}'
+          request.url: "http://${OLLAMA_ADDRESS}/api/embed"
+          request.method: "POST"
+          # Response will contain {"embeddings": [[0.1, 0.2, ...], [0.3, 0.4, ...], ...]}
+          response.body: ".Payload.After.embeddings"
+      - id: ollama-embed-decode-json
+        plugin: "json.decode"
+        settings:
+          field: ".Payload.After.embeddings"
+      - id: merge-chunks-and-embeddings
+        plugin: "custom.javascript"
+        settings:
+          script: |
+            function process(rec) {
+              // rec.Payload.After currently contains:
+              // {
+              //   "chunks": ["text-chunk1", "text-chunk2", ...],
+              //   "embeddings": {
+              //     "embeddings": [[0.1, 0.2, ...], [0.3, 0.4, ...], ...]
+              //   }
+              // }
+            
+              // We want to transform it to:
+              // {
+              //   "items": [
+              //     {"text": "text-chunk1", "embedding": [0.1, 0.2, ...]},
+              //     {"text": "text-chunk2", "embedding": [0.3, 0.4, ...]},
+              //     ...
+              //   ]
+              // }
+
+              const chunks = rec.Payload.After.chunks;
+              const embeddings = rec.Payload.After.embeddings.embeddings;
+
+              const formatted = chunks.map((text, i) => ({
+                text,
+                embedding: embeddings[i]
+              }));
+
+              rec.Payload.After = StructuredData();
+              rec.Payload.After["items"] = formatted;
+
+              return rec;
+            }
+      - id: split-items
+        plugin: "split"
+        settings:
+          field: ".Payload.After.items"
+      - id: prepare-file-items-record
+        plugin: "custom.javascript"
+        settings:
+          script: |
+            function process(rec) {
+              rec.Metadata["opencdc.collection"] = "file_items";
+            
+              data = StructuredData();
+              data["file_id"] = rec.Metadata["file_id"];
+              data["user_id"] = "${CHATBOTUI_USER_ID}";
+              data["content"] = rec.Payload.After.items.text;                              // The text content of the file item
+              data["local_embedding"] = JSON.stringify(rec.Payload.After.items.embedding); // The local embedding of the file item, JSON representation
+              data["tokens"] = rec.Payload.After.items.text.trim().split(/\s+/).length;    // Naive token count based on whitespace splitting
+            
+              // Store the file name in the metadata before removing the key
+              rec.Metadata["file_name"] = String.fromCharCode.apply(String, rec.Key);
+              // Empty key, the database will generate a UUID for us
+              rec.Key = StructuredData();
+            
+              rec.Payload.After = data;
+              return rec;
+            }
+      # -------- files and collection_files and workspace_files --------
+      - id: clone-3-times
+        plugin: clone
+        # Clone the first record 3 times to create records for files, collection_files, and file_workspaces
+        condition: '{{ eq (index .Metadata "split.index") "0" }}'
+        settings:
+          count: 3
+      - id: prepare-files-record
+        plugin: "custom.javascript"
+        condition: '{{ eq (index .Metadata "clone.index") "0" }}'
+        settings:
+          script: |
+            function process(rec) {
+              rec.Metadata["opencdc.collection"] = "files";
+
+              rec.Payload.After = StructuredData();
+              rec.Payload.After["id"] = rec.Metadata["file_id"];
+              rec.Payload.After["user_id"] = "${CHATBOTUI_USER_ID}";
+              rec.Payload.After["description"] = rec.Metadata["title"];                        // This is the S3 metadata field "title"
+              rec.Payload.After["file_path"] = "${CHATBOTUI_USER_ID}/foo.pdf"; // This is a placeholder for now, we don't upload the actual file
+              rec.Payload.After["name"] = rec.Metadata["file_name"].split('/').pop();          // Use only the file name, not the whole path 
+              rec.Payload.After["size"] = 0;                                                   // TODO check if AWS provides file size in the metadata
+              rec.Payload.After["tokens"] = 0;                                                 // Not sure how to calculate tokens for a file, so we set it to 0 for now
+              rec.Payload.After["type"] = "application/pdf";                                   // We're only processing PDF files in this pipeline
+
+              rec.Key = StructuredData(); // Empty key, the database will generate a UUID for us
+
+              return rec;
+            }
+      - id: prepare-collection-files-record
+        plugin: "custom.javascript"
+        condition: '{{ eq (index .Metadata "clone.index") "1" }}'
+        settings:
+          script: |
+            function process(rec) {
+              rec.Metadata["opencdc.collection"] = "collection_files";
+
+              rec.Key = StructuredData();
+              rec.Key["file_id"] = rec.Metadata["file_id"];
+              rec.Key["collection_id"] = "${CHATBOTUI_COLLECTION_ID}";
+
+              rec.Payload.After = StructuredData();
+              rec.Payload.After["user_id"] = "${CHATBOTUI_USER_ID}";
+
+              return rec;
+            }
+      - id: prepare-file-workspaces-record
+        plugin: "custom.javascript"
+        condition: '{{ eq (index .Metadata "clone.index") "2" }}'
+        settings:
+          script: |
+            function process(rec) {
+              rec.Metadata["opencdc.collection"] = "file_workspaces";
+
+              rec.Key = StructuredData();
+              rec.Key["file_id"] = rec.Metadata["file_id"];
+              rec.Key["workspace_id"] = "${CHATBOTUI_WORKSPACE_ID}";
+
+              rec.Payload.After = StructuredData();
+              rec.Payload.After["user_id"] = "${CHATBOTUI_USER_ID}";
+
+              return rec;
+            }

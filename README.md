@@ -30,8 +30,8 @@ This repository showcases practical AI pipeline implementations using Conduit's 
 - **Use Case**: Build searchable knowledge bases from document collections
 - **Includes**: Document parsing service + RAG query API
 
-### [RAG Knowledge System (Ollama)](./examples/rag-openai/)
-**Real-time ingest document processing and intelligent search**
+### [RAG Knowledge System (Ollama)](./examples/rag-ollama/)
+**Real-time ingest document processing and chatbot UI running locally**
 - **Source**: AWS S3 (documents)
 - **AI Processing**: Document parsing + Ollama embeddings + vector search
 - **Destination**: Supabase

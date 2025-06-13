@@ -1,0 +1,7 @@
+services:
+  unstructured:
+    build: .
+    pull_policy: never
+    restart: unless-stopped
+    ports:
+      - 8089:8089
