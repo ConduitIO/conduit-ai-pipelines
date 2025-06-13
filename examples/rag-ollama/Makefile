@@ -49,6 +49,7 @@ chatbot-ui-init: chatbot-ui chatbot-ui-update-service-role-key chatbot-ui-update
 # Install required ollama models.
 ollama-init:
 	ollama pull all-minilm:l6-v2
+	ollama pull deepseek-r1:8b
 
 # Start supabase.
 supabase-up: chatbot-ui
