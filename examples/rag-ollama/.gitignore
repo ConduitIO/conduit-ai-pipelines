@@ -1,0 +1,4 @@
+# Ignore chatbot-ui repo that will be cloned in this folder
+/chatbot-ui
+# Ignore .env file
+/.env
