@@ -34,7 +34,11 @@ chatbot-ui:
 
 # Prepare the .env.local file for chatbot-ui.
 chatbot-ui-update-env-local: chatbot-ui
-	cp -n ./chatbot-ui/.env.local.example ./chatbot-ui/.env.local
+	@if [ ! -f ./chatbot-ui/.env.local ]; then \
+		cp ./chatbot-ui/.env.local.example ./chatbot-ui/.env.local; \
+	else \
+		echo ".env.local already exists, using existing file"; \
+	fi
 	./scripts/chatbot-ui-init.sh ./chatbot-ui
 
 # Update the service_role key in the SQL migration file.
